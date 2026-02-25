@@ -86,3 +86,4 @@ coverage
 
 # Vite temp files
 *.timestamp-*
+blockchain/crypto-config/
