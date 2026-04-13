@@ -70,7 +70,8 @@ export default function FraudReport() {
     if (t.includes('cluster')) return '🔴';
     if (t.includes('frequency')) return '⚡';
     if (t.includes('injection')) return '💉';
-    return '⚠️';
+    if (t.includes('anomaly')) return '⚠️';
+    return '🚨';
   };
 
   return (
@@ -125,6 +126,7 @@ export default function FraudReport() {
                 <tr>
                   <th>Detection Type</th>
                   <th>Target Asset</th>
+                  <th>Alert Overview</th>
                   <th>Confidence</th>
                   <th>Time Detected</th>
                   <th>Severity</th>
@@ -137,10 +139,15 @@ export default function FraudReport() {
                     <tr key={alert.id || i} className={confValue > 0.8 ? 'row-high' : ''}>
                       <td>
                         <span className="type-badge">
-                          {getTypeIcon(alert.type)} {alert.type?.replace(/_/g, ' ')}
+                          {getTypeIcon(alert.alert_type)} {(alert.alert_type || alert.type)?.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td className="asset-id"><code>{alert.asset_id}</code></td>
+                      <td className="asset-id"><code>{alert.device_id || alert.asset_id}</code></td>
+                      <td className="alert-message-cell">
+                         <div style={{ fontSize: '0.85rem', color: '#e2e8f0', maxWidth: '280px', lineHeight: '1.4' }}>
+                           {alert.message}
+                         </div>
+                      </td>
                       <td>
                         <div className="confidence-cell">
                           <div className="conf-bar-bg">

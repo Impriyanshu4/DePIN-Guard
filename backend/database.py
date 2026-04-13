@@ -101,6 +101,7 @@ class FraudAlertModel(BaseModel):
     alert_type: str  # "anomaly", "suspicious_pattern", "threshold_exceeded"
     severity: str  # "low", "medium", "high"
     message: str
+    confidence: Optional[float] = None
     anomaly_data: Optional[dict] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     

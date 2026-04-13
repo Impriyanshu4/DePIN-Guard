@@ -31,7 +31,7 @@ const HistoryPage = () => {
       }
 
       if (data.history.length > 0) {
-        setHistoryData(data.history.slice(0, 10000)); // Use full dataset from API (already sorted)
+        setHistoryData(data.history); // Use full dataset from API
       }
     } catch (error) {
       console.error('[History] Fetch failed:', error.message);
@@ -182,7 +182,11 @@ const HistoryPage = () => {
                           <span>{item.device}</span>
                         </div>
                       </td>
-                      <td><code className="hash-code">{item.hash ?? '---'}</code></td>
+                      <td>
+                        <code className="hash-code">
+                          {item.hash ? `${item.hash.substring(0, 16)}...` : '---'}
+                        </code>
+                      </td>
                       <td><span className="value-badge">{item.temp ?? '—'}°C</span></td>
                       <td><span className="value-badge">{item.vib  ?? '—'}</span></td>
                       <td><span className="value-badge">{item.pwr  ?? '—'}W</span></td>
