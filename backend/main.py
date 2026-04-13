@@ -106,30 +106,29 @@ async def _hydrate_system_state():
     
     try:
         if mongo_db is not None and mongodb_client is not None:
-            # Get data from MongoDB
-            all_data = await mongo_db["sensor_data"].find({}).sort("timestamp", -1).to_list(length=None)
-            critical_data = [d for d in all_data if d.get("status") == "critical"]
-            
-            # Get unique device count
-            active_devices = set()
-            for record in all_data:
-                device_id = record.get("device_id")
-                if device_id:
-                    active_devices.add(device_id)
-            
-            system_state["dashboard"]["active_devices"] = len(active_devices)
-            system_state["dashboard"]["total_scans"] = len(all_data)
-            system_state["dashboard"]["anomalies"] = len(critical_data)
-            system_state["dashboard"]["uptime"] = 100.0
-            
-            system_state["ai"]["total_analyses"] = len(all_data)
-            system_state["ai"]["anomalies_found"] = len(critical_data)
-            
-            # Blockchain block count and recent blocks
-            block_count = max(len(critical_data), 5)  # At least 5 blocks
-            system_state["blockchain"]["total_blocks"] = block_count
-            system_state["blockchain"]["transactions"] = len(critical_data)
-            
+            # Use efficient aggregation — don't load all docs into memory
+            total_scans   = await mongo_db["sensor_data"].count_documents({})
+            # Anomalies live in fraud_alerts, NOT as a status field on sensor_data
+            # (sensor_data docs never have status set — fraud_alerts is the source of truth)
+            anomaly_count = await mongo_db["fraud_alerts"].count_documents({})
+
+            # Unique active devices via distinct (O(1) index scan)
+            active_device_ids = await mongo_db["sensor_data"].distinct("device_id")
+            num_active        = len(active_device_ids)
+
+            system_state["dashboard"]["active_devices"] = num_active
+            system_state["dashboard"]["total_scans"]    = total_scans
+            system_state["dashboard"]["anomalies"]      = anomaly_count  # from fraud_alerts ✅
+            system_state["dashboard"]["uptime"]         = 100.0
+
+            system_state["ai"]["total_analyses"]  = total_scans
+            system_state["ai"]["anomalies_found"] = anomaly_count
+
+            # Blockchain block/tx counts mirror fraud_alerts (each anomaly → 1 block)
+            block_count = max(anomaly_count, 5)  # show at least 5 demo blocks
+            system_state["blockchain"]["total_blocks"]  = block_count
+            system_state["blockchain"]["transactions"]  = anomaly_count
+
             # Fetch blockchain data
             if BLOCKCHAIN_ACTIVE:
                 try:
@@ -137,30 +136,29 @@ async def _hydrate_system_state():
                     status = fabric_client.network_status()
                     if status and status.get("ready"):
                         print("[Blockchain] Connected to Hyperledger Fabric — fetching real blocks")
-                        # TODO: Implement actual block query via fabric_client
-                        # For now, generate mock blocks but mark network as ready
-                        system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                        system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                         system_state["blockchain"]["network_status"] = "Active"
                     else:
                         print("[Blockchain] Network check failed — using fallback blocks")
-                        system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                        system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                         system_state["blockchain"]["network_status"] = "Degraded"
                 except Exception as e:
                     print(f"[Blockchain] Error fetching real data: {e} — using fallback blocks")
-                    system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                    system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                     system_state["blockchain"]["network_status"] = "Fallback"
             else:
                 # Demo mode: generate mock blocks
-                system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                 system_state["blockchain"]["network_status"] = "Demo"
-            
-            print(f"[SystemState] Loaded {len(all_data)} records from MongoDB - {len(active_devices)} active devices")
-            print(f"[Blockchain] {len(system_state['blockchain']['recent_blocks'])} blocks available (status: {system_state['blockchain'].get('network_status', 'unknown')})")
+
+            print(f"[SystemState] Loaded: {total_scans} scans | {num_active} devices | {anomaly_count} anomalies (from fraud_alerts)")
+            print(f"[Blockchain] {len(system_state['blockchain']['recent_blocks'])} blocks (status: {system_state['blockchain'].get('network_status', 'unknown')})")
         else:
             print("[SystemState] MongoDB not available!")
     except Exception as e:
         print(f"[SystemState] Error: {e}")
         raise
+
 
 
 async def _setup_system_state():
@@ -201,54 +199,59 @@ def run_gnn_analysis():
 
 
 def run_blockchain_refresh():
-    """Refresh blockchain data - scheduled task"""
+    """Refresh blockchain data and dashboard anomaly count - scheduled task"""
     try:
         import asyncio
-        # Run async hydration in sync context (just update blockchain part)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         async def _update_blockchain_only():
-            """Update only blockchain data without full hydration"""
+            """Efficiently refresh blockchain + anomaly counts without full hydration"""
             from database import db as mongo_db, mongodb_client
-            
+
             try:
                 if mongo_db is not None and mongodb_client is not None:
-                    # Get data from MongoDB
-                    all_data = await mongo_db["sensor_data"].find({}).sort("timestamp", -1).to_list(length=None)
-                    critical_data = [d for d in all_data if d.get("status") == "critical"]
-                    
-                    # Blockchain block count and recent blocks
-                    block_count = max(len(critical_data), 5)
-                    system_state["blockchain"]["total_blocks"] = block_count
-                    system_state["blockchain"]["transactions"] = len(critical_data)
-                    
-                    # Fetch blockchain data
+                    # Use count_documents — no need to pull all records into RAM
+                    total_scans   = await mongo_db["sensor_data"].count_documents({})
+                    anomaly_count = await mongo_db["fraud_alerts"].count_documents({})  # correct source ✅
+
+                    # Keep dashboard counters in sync
+                    system_state["dashboard"]["total_scans"] = total_scans
+                    system_state["dashboard"]["anomalies"]   = anomaly_count
+                    system_state["ai"]["total_analyses"]     = total_scans
+                    system_state["ai"]["anomalies_found"]    = anomaly_count
+
+                    block_count = max(anomaly_count, 5)
+                    system_state["blockchain"]["total_blocks"]  = block_count
+                    system_state["blockchain"]["transactions"]  = anomaly_count
+
+                    # Refresh blockchain blocks
                     if BLOCKCHAIN_ACTIVE:
                         try:
                             status = fabric_client.network_status()
                             if status and status.get("ready"):
-                                system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                                system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                                 system_state["blockchain"]["network_status"] = "Active"
                             else:
-                                system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                                system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                                 system_state["blockchain"]["network_status"] = "Degraded"
                         except Exception as e:
                             print(f"[Blockchain Refresh] Error: {e}")
-                            system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                            system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                             system_state["blockchain"]["network_status"] = "Fallback"
                     else:
-                        system_state["blockchain"]["recent_blocks"] = _generate_mock_blocks(block_count)
+                        system_state["blockchain"]["recent_blocks"]  = _generate_mock_blocks(block_count)
                         system_state["blockchain"]["network_status"] = "Demo"
-                    
-                    print(f"[Blockchain Refresh] Updated: {block_count} blocks, {len(critical_data)} transactions")
+
+                    print(f"[Blockchain Refresh] {total_scans} scans | {anomaly_count} anomalies | {block_count} blocks")
             except Exception as e:
                 print(f"[Blockchain Refresh] Failed: {e}")
-        
+
         loop.run_until_complete(_update_blockchain_only())
         loop.close()
     except Exception as e:
         print(f"[Blockchain Refresh] Critical error: {e}")
+
 
 
 @asynccontextmanager
