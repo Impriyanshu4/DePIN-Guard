@@ -148,6 +148,9 @@ async def get_fraud_alerts(device_id: Optional[str] = None, limit: int = 50):
     try:
         query = {} if not device_id else {"device_id": device_id}
         alerts = await db["fraud_alerts"].find(query).sort("timestamp", -1).limit(limit).to_list(length=limit)
+        for alert in alerts:
+            if "_id" in alert:
+                alert["id"] = str(alert.pop("_id"))
         return alerts
     except Exception as e:
         print(f"Error retrieving fraud alerts: {e}")
