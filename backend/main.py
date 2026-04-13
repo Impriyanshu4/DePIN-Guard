@@ -490,16 +490,24 @@ async def get_ai_analysis():
         
         recent_results = []
         for alert in recent_alerts:
+            conf_val = alert.get("confidence")
+            if conf_val is None:
+                conf_val = 0.95
+            try:
+                conf_float = float(conf_val)
+            except (ValueError, TypeError):
+                conf_float = 0.95
+                
             recent_results.append({
                 "id": alert.get("id"),
                 "device": alert.get("device_id", "Unknown"),
                 "analysis_type": alert.get("alert_type", "anomaly").replace("_", " ").title(),
                 "severity": alert.get("severity", "medium"),
-                "confidence": float(alert.get("confidence", 0.95)) * 100 if float(alert.get("confidence", 0.95)) <= 1.0 else float(alert.get("confidence", 95)),
+                "confidence": conf_float * 100 if conf_float <= 1.0 else conf_float,
                 "timestamp": alert.get("timestamp", ""),
                 "description": alert.get("message", "No description"),
-                "recommendation": alert.get("anomaly_data", {}).get("recommendation", "Consider inspecting the device."),
-                "model_name": alert.get("anomaly_data", {}).get("source", "LSTM Autoencoder")
+                "recommendation": alert.get("anomaly_data", {}).get("recommendation", "Consider inspecting the device.") if isinstance(alert.get("anomaly_data"), dict) else "Consider inspecting the device.",
+                "model_name": alert.get("anomaly_data", {}).get("source", "LSTM Autoencoder") if isinstance(alert.get("anomaly_data"), dict) else "LSTM Autoencoder"
             })
 
         return {
