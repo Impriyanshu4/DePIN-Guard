@@ -18,7 +18,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError("JWT_SECRET_KEY not set in .env file!")
 
-ACCESS_TOKEN_EXPIRE_MINUTES = 15
+ACCESS_TOKEN_EXPIRE_MINUTES = 480   # 8 hours — prevents silent logouts during demos
 REFRESH_TOKEN_EXPIRE_HOURS = 24
 
 # ==========================================
@@ -181,6 +181,9 @@ app.add_middleware(
     allow_origins=[
         "https://depin-guard-frontend.vercel.app",
         "https://depin-guard-backend.onrender.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
